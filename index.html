@@ -22,6 +22,9 @@
   #msg { margin-top: 6px; font-size: 16px; min-height: 24px; }
   .ok { color: #0a7d32; font-weight: 700; } .err { color: #c62828; font-weight: 600; }
   #hoy { margin-top: 14px; font-size: 14px; color: #6b6b70; }
+  #cod { width: 100%; border: 2px solid #c7c7cc; border-radius: 14px; padding: 16px; font-size: 28px;
+         text-align: center; letter-spacing: 8px; margin-bottom: 12px; }
+  #bR { background: #007AFF; }
   .oculto { display: none; }
 </style>
 </head>
@@ -30,6 +33,12 @@
   <div class="sub">Registro de entrada y salida</div>
   <div class="card">
     <div id="carga">Cargando...</div>
+    <div id="alta" class="oculto">
+      <div class="nombre">Registrar este celular</div>
+      <div class="fecha">Ingresa el codigo de 6 numeros que recibiste por mail. Se hace una sola vez.</div>
+      <input id="cod" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000">
+      <button id="bR" onclick="alta()">REGISTRAR</button>
+    </div>
     <div id="panel" class="oculto">
       <div class="nombre" id="nombre"></div>
       <div class="fecha" id="fecha"></div>
@@ -62,31 +71,40 @@
       .then(function (r) { return r.json(); });
   }
 
+  function registrar(codigo) {
+    if (!dev) {
+      dev = nuevoId();
+      if (!guardar(dev)) { $('carga').className = 'oculto';
+        return msg('Este navegador no permite guardar el registro. Desactiva el modo privado y volve a escanear el QR.', 'err'); }
+    }
+    $('bR').disabled = true; msg('Registrando...');
+    api({ a: 'registrar', token: codigo, dev: dev }).then(function (r) {
+      $('bR').disabled = false; $('carga').className = 'oculto';
+      if (!r.ok) { $('alta').className = ''; return msg(r.msg, 'err'); }
+      try { history.replaceState(null, '', location.pathname); } catch (e) {}
+      $('alta').className = 'oculto';
+      cargar('Celular registrado. Desde ahora solo escanea el QR de la oficina.');
+    }).catch(function () { $('bR').disabled = false; falla(); });
+  }
+
+  function alta() {
+    var c = $('cod').value.replace(/\D/g, '');
+    if (c.length !== 6) return msg('El codigo tiene 6 numeros.', 'err');
+    registrar(c);
+  }
+
   function iniciar() {
     dev = leer();
-    if (TOKEN) {
-      if (!dev) {
-        dev = nuevoId();
-        if (!guardar(dev)) { $('carga').className = 'oculto';
-          return msg('Este navegador no permite guardar el registro. Abri el enlace en Safari o Chrome, sin modo privado.', 'err'); }
-      }
-      api({ a: 'registrar', token: TOKEN, dev: dev }).then(function (r) {
-        if (!r.ok) { $('carga').className = 'oculto'; return msg(r.msg, 'err'); }
-        try { history.replaceState(null, '', location.pathname); } catch (e) {}
-        cargar('Celular registrado. Desde ahora solo escanea el QR de la oficina.');
-      }).catch(falla);
-    } else if (dev) {
-      cargar('');
-    } else {
-      $('carga').className = 'oculto';
-      msg('Este celular no esta registrado. Abri el enlace personal que recibiste por mail.', 'err');
-    }
+    if (dev) return cargar('');
+    $('carga').className = 'oculto';
+    if (TOKEN) return registrar(TOKEN);
+    $('alta').className = '';
   }
 
   function cargar(aviso) {
     api({ a: 'estado', dev: dev }).then(function (r) {
       $('carga').className = 'oculto';
-      if (!r.ok) return msg('Este celular no esta registrado. Pedi un enlace nuevo.', 'err');
+      if (!r.ok) { $('alta').className = ''; return; }
       $('panel').className = '';
       $('nombre').textContent = r.nombre;
       $('fecha').textContent = r.fecha.split('-').reverse().join('/');
