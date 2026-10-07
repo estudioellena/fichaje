@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Fichaje Interpas</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: -apple-system, Roboto, Arial, sans-serif; background: #007AFF; color: #fff;
+         min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 28px 16px; }
+  h1 { font-size: 30px; letter-spacing: 4px; margin: 8px 0 2px; }
+  .sub { opacity: .85; margin-bottom: 22px; font-size: 14px; }
+  .card { background: #fff; color: #1c1c1e; border-radius: 18px; padding: 22px 18px; width: 100%; max-width: 420px;
+          text-align: center; }
+  .nombre { font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .fecha { color: #6b6b70; font-size: 14px; margin-bottom: 18px; }
+  button { width: 100%; border: 0; border-radius: 14px; padding: 20px; font-size: 20px; font-weight: 700;
+           color: #fff; margin-bottom: 12px; }
+  #bE { background: #007AFF; } #bS { background: #1c1c1e; }
+  button:disabled { opacity: .45; }
+  #msg { margin-top: 6px; font-size: 16px; min-height: 24px; }
+  .ok { color: #0a7d32; font-weight: 700; } .err { color: #c62828; font-weight: 600; }
+  #hoy { margin-top: 14px; font-size: 14px; color: #6b6b70; }
+  .oculto { display: none; }
+</style>
+</head>
+<body>
+  <h1>INTERPAS</h1>
+  <div class="sub">Registro de entrada y salida</div>
+  <div class="card">
+    <div id="carga">Cargando...</div>
+    <div id="panel" class="oculto">
+      <div class="nombre" id="nombre"></div>
+      <div class="fecha" id="fecha"></div>
+      <button id="bE" onclick="fichar('Entrada')">ENTRADA</button>
+      <button id="bS" onclick="fichar('Salida')">SALIDA</button>
+    </div>
+    <div id="msg"></div>
+    <div id="hoy"></div>
+  </div>
+
+<script>
+  var API = 'https://script.google.com/macros/s/AKfycbzHn5CO66g6qvT05lNnVw9aZSDV_2OhM7YpjBdG4SoZgRbLXwm0i-D8kI2n80dpEU2k/exec';
+  var CLAVE = 'interpas_fichaje_dev';
+  var TOKEN = new URLSearchParams(location.search).get('t') || '';
+  var dev = null;
+
+  function $(id) { return document.getElementById(id); }
+  function msg(t, cls) { $('msg').className = cls || ''; $('msg').textContent = t; }
+  function leer() { try { return localStorage.getItem(CLAVE); } catch (e) { return null; } }
+  function guardar(v) { try { localStorage.setItem(CLAVE, v); return localStorage.getItem(CLAVE) === v; } catch (e) { return false; } }
+  function nuevoId() {
+    var a = new Uint8Array(24); crypto.getRandomValues(a);
+    return Array.prototype.map.call(a, function (b) { return ('0' + b.toString(16)).slice(-2); }).join('');
+  }
+  function botones(off) { $('bE').disabled = off; $('bS').disabled = off; }
+  function falla() { $('carga').className = 'oculto'; botones(false); msg('Error de conexion. Proba de nuevo en unos segundos.', 'err'); }
+
+  function api(datos) {
+    return fetch(API, { method: 'POST', body: JSON.stringify(datos), credentials: 'omit', redirect: 'follow' })
+      .then(function (r) { return r.json(); });
+  }
+
+  function iniciar() {
+    dev = leer();
+    if (TOKEN) {
+      if (!dev) {
+        dev = nuevoId();
+        if (!guardar(dev)) { $('carga').className = 'oculto';
+          return msg('Este navegador no permite guardar el registro. Abri el enlace en Safari o Chrome, sin modo privado.', 'err'); }
+      }
+      api({ a: 'registrar', token: TOKEN, dev: dev }).then(function (r) {
+        if (!r.ok) { $('carga').className = 'oculto'; return msg(r.msg, 'err'); }
+        try { history.replaceState(null, '', location.pathname); } catch (e) {}
+        cargar('Celular registrado. Desde ahora solo escanea el QR de la oficina.');
+      }).catch(falla);
+    } else if (dev) {
+      cargar('');
+    } else {
+      $('carga').className = 'oculto';
+      msg('Este celular no esta registrado. Abri el enlace personal que recibiste por mail.', 'err');
+    }
+  }
+
+  function cargar(aviso) {
+    api({ a: 'estado', dev: dev }).then(function (r) {
+      $('carga').className = 'oculto';
+      if (!r.ok) return msg('Este celular no esta registrado. Pedi un enlace nuevo.', 'err');
+      $('panel').className = '';
+      $('nombre').textContent = r.nombre;
+      $('fecha').textContent = r.fecha.split('-').reverse().join('/');
+      $('hoy').textContent = r.hoy.length ? 'Hoy: ' + r.hoy.join(' · ') : 'Todavia no fichaste hoy.';
+      if (aviso) msg(aviso, 'ok');
+    }).catch(falla);
+  }
+
+  function fichar(tipo) {
+    if (!navigator.geolocation) return msg('Este celular no permite leer la ubicacion.', 'err');
+    botones(true); msg('Leyendo ubicacion...');
+    navigator.geolocation.getCurrentPosition(function (p) {
+      msg('Registrando...');
+      api({ a: 'fichar', dev: dev, tipo: tipo, lat: p.coords.latitude, lng: p.coords.longitude, prec: p.coords.accuracy })
+        .then(function (r) {
+          botones(false);
+          if (!r.ok) return msg(r.msg, 'err');
+          cargar(r.tipo + ' registrada a las ' + r.hora + (r.ubic === 'Fuera de oficina' ? ' (fuera de la oficina)' : ''));
+        }).catch(falla);
+    }, function (e) {
+      botones(false);
+      if (e.code === 1) msg('Permiso de ubicacion denegado. En Ajustes del celular, permiti la ubicacion para este navegador y volve a intentar.', 'err');
+      else if (e.code === 3) msg('La ubicacion tardo demasiado. Proba de nuevo, mejor cerca de una ventana.', 'err');
+      else msg('No se pudo obtener la ubicacion. Verifica que el GPS este activado.', 'err');
+    }, { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 });
+  }
+
+  iniciar();
+</script>
+</body>
+</html>
